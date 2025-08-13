@@ -1,0 +1,38 @@
+services:
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock-backend
+    ports:
+      - "8098:8080"
+    volumes:
+      # 挂载数据库文件，确保数据持久化
+      - ./backend/stock.db:/root/stock.db
+    environment:
+      - GIN_MODE=release
+    restart: unless-stopped
+    networks:
+      - stock-network
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stock-frontend
+    ports:
+      - "8099:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - stock-network
+
+networks:
+  stock-network:
+    driver: bridge
+
+volumes:
+  stock-data:
