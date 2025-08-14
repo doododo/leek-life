@@ -201,7 +201,7 @@ func fetchBatchStockData(codes []string) (map[string]*StockData, error) {
 	}
 
 	url := fmt.Sprintf("https://qt.gtimg.cn/q=%s&fmt=json", strings.Join(rCodes, ","))
-
+	log.Printf("请求URL: %s", url)
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
@@ -233,7 +233,7 @@ func fetchBatchStockData(codes []string) (map[string]*StockData, error) {
 	}
 
 	// 解析JSON响应
-	var responseData map[string]interface{}
+	var responseData map[string]any
 	if err := json.Unmarshal([]byte(bodyStr), &responseData); err != nil {
 		return nil, fmt.Errorf("解析JSON失败: %v", err)
 	}
@@ -244,7 +244,7 @@ func fetchBatchStockData(codes []string) (map[string]*StockData, error) {
 	for _, code := range codes {
 		rCode := "r_" + code
 		if stockArr, exists := responseData[rCode]; exists {
-			if arr, ok := stockArr.([]interface{}); ok && len(arr) > 37 {
+			if arr, ok := stockArr.([]any); ok && len(arr) > 37 {
 				stockData := &StockData{
 					Code: code,
 				}
@@ -374,6 +374,10 @@ func fetchStockInfo(code string) (*model.Stock, error) {
 		Name:        strings.TrimSpace(parts[1]),
 		Code:        code,
 		Price:       price,
+		Open:        0, // 初始添加时暂时设为0，后续更新时会获取完整数据
+		YestClose:   yesterdayPrice,
+		High:        0,
+		Low:         0,
 		TodayChange: todayChange,
 	}, nil
 }
@@ -437,6 +441,18 @@ func updateAllStockPrices() {
 			// 更新价格和今日涨幅
 			if stockData.Price > 0 {
 				stock.Price = stockData.Price
+			}
+			if stockData.Open > 0 {
+				stock.Open = stockData.Open
+			}
+			if stockData.YestClose > 0 {
+				stock.YestClose = stockData.YestClose
+			}
+			if stockData.High > 0 {
+				stock.High = stockData.High
+			}
+			if stockData.Low > 0 {
+				stock.Low = stockData.Low
 			}
 
 			// 计算今日涨幅

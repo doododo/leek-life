@@ -1,4 +1,4 @@
-# 韭菜生活 - 股票关注看板系统
+# 韭菜生活 - 股票关注看板
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 
@@ -21,8 +21,8 @@
 
 1. **克隆项目**
 ```bash
-git clone <your-repo-url>
-cd Docker/stock
+git clone git@github.com:doododo/leek-life.git
+cd leek-life
 ```
 
 2. **一键启动**
@@ -31,8 +31,7 @@ docker-compose up -d
 ```
 
 3. **访问应用**
-- 前端界面：http://localhost:8099
-- 后端API：http://localhost:8098
+- 系统界面：http://localhost:8099
 
 ### 方法2：本地开发部署
 
