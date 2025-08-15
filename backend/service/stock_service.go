@@ -174,26 +174,173 @@ func isTradingHours() bool {
 
 // StockData 股票数据结构
 type StockData struct {
-	Code      string  `json:"code"`
-	Name      string  `json:"name"`
-	Price     float64 `json:"price"`
-	YestClose float64 `json:"yestclose"`
-	Open      float64 `json:"open"`
-	High      float64 `json:"high"`
-	Low       float64 `json:"low"`
-	Volume    float64 `json:"volume"`
-	Amount    float64 `json:"amount"`
-	Buy1      float64 `json:"buy1"`
-	Sell1     float64 `json:"sell1"`
-	Time      string  `json:"time"`
+	Code         string  `json:"code"`
+	Name         string  `json:"name"`
+	Price        float64 `json:"price"`
+	YestClose    float64 `json:"yestclose"`
+	Open         float64 `json:"open"`
+	High         float64 `json:"high"`
+	Low          float64 `json:"low"`
+	Volume       float64 `json:"volume"`
+	Amount       float64 `json:"amount"`
+	Buy1         float64 `json:"buy1"`
+	Sell1        float64 `json:"sell1"`
+	Time         string  `json:"time"`
+	TodayChange  float64 `json:"today_change"`
 }
 
 // fetchBatchStockData 批量获取股票数据
+// fetchBatchStockData 批量获取股票数据，根据代码区分港股和A股
 func fetchBatchStockData(codes []string) (map[string]*StockData, error) {
 	if len(codes) == 0 {
 		return make(map[string]*StockData), nil
 	}
 
+	// 分离A股和港股代码
+	a股Codes := []string{}
+	hkCodes := []string{}
+	for _, code := range codes {
+		// 判断代码前缀
+		if strings.HasPrefix(code, "sh") || strings.HasPrefix(code, "sz") || strings.HasPrefix(code, "bj") {
+			a股Codes = append(a股Codes, code)
+		} else if strings.HasPrefix(code, "hk") {
+			hkCodes = append(hkCodes, code)
+		} else {
+			// 默认为港股
+			hkCodes = append(hkCodes, code)
+		}
+	}
+
+	result := make(map[string]*StockData)
+
+	// 处理港股数据
+	if len(hkCodes) > 0 {
+		hkResult, err := fetchHKStockData(hkCodes)
+		if err != nil {
+			log.Printf("获取港股数据失败: %v", err)
+		} else {
+			for k, v := range hkResult {
+				result[k] = v
+			}
+		}
+	}
+
+	// 处理A股数据
+	if len(a股Codes) > 0 {
+		a股Result, err := fetchAStockData(a股Codes)
+		if err != nil {
+			log.Printf("获取A股数据失败: %v", err)
+		} else {
+			for k, v := range a股Result {
+				result[k] = v
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// fetchAStockData 获取A股数据（使用新浪财经数据源）
+func fetchAStockData(codes []string) (map[string]*StockData, error) {
+	url := fmt.Sprintf("https://hq.sinajs.cn/list=%s", strings.Join(codes, ","))
+	log.Printf("请求A股URL: %s", url)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Accept", "text/plain")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,en;q=0.6")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Referer", "http://finance.sina.com.cn/")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// 新浪财经返回GB18030编码，需要转换为UTF-8
+	reader := transform.NewReader(strings.NewReader(string(body)), simplifiedchinese.GB18030.NewDecoder())
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("编码转换失败: %v", err)
+	}
+	bodyStr := string(bodyBytes)
+
+	// 解析响应数据
+	result := make(map[string]*StockData)
+	splitData := strings.Split(bodyStr, ";\n")
+
+	for _, line := range splitData {
+		if len(line) == 0 {
+			continue
+		}
+
+		// 提取股票代码和数据
+		parts := strings.Split(line, "=")
+		if len(parts) < 2 {
+			continue
+		}
+
+		codePart := parts[0]
+		dataPart := parts[1]
+
+		// 提取股票代码
+		code := strings.TrimPrefix(codePart, "var hq_str_")
+		if len(code) == 0 {
+			continue
+		}
+
+		// 提取数据部分
+		dataPart = strings.Trim(dataPart, "\"")
+		params := strings.Split(dataPart, ",")
+		if len(params) < 11 {
+			log.Printf("A股数据不完整: %s", code)
+			continue
+		}
+
+		// 创建StockData对象
+		stockData := &StockData{
+			Code: code,
+			Name: params[0],
+		}
+
+		// 解析价格数据
+		open, _ := strconv.ParseFloat(params[1], 64)
+		yestclose, _ := strconv.ParseFloat(params[2], 64)
+		price, _ := strconv.ParseFloat(params[3], 64)
+		high, _ := strconv.ParseFloat(params[4], 64)
+		low, _ := strconv.ParseFloat(params[5], 64)
+
+		stockData.Open = open
+		stockData.YestClose = yestclose
+		stockData.Price = price
+		stockData.High = high
+		stockData.Low = low
+
+		// 计算涨跌幅
+		if yestclose > 0 {
+			stockData.TodayChange = (price - yestclose) / yestclose * 100
+		}
+
+		result[code] = stockData
+	}
+
+	return result, nil
+}
+
+// fetchHKStockData 获取港股数据（使用原有的腾讯数据源）
+func fetchHKStockData(codes []string) (map[string]*StockData, error) {
 	// 构建请求参数，使用 r_ 前缀
 	rCodes := make([]string, len(codes))
 	for i, code := range codes {
@@ -201,7 +348,7 @@ func fetchBatchStockData(codes []string) (map[string]*StockData, error) {
 	}
 
 	url := fmt.Sprintf("https://qt.gtimg.cn/q=%s&fmt=json", strings.Join(rCodes, ","))
-	log.Printf("请求URL: %s", url)
+	log.Printf("请求港股URL: %s", url)
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
@@ -235,7 +382,7 @@ func fetchBatchStockData(codes []string) (map[string]*StockData, error) {
 	// 解析JSON响应
 	var responseData map[string]any
 	if err := json.Unmarshal([]byte(bodyStr), &responseData); err != nil {
-		return nil, fmt.Errorf("解析JSON失败: %v", err)
+		return nil, fmt.Errorf("解析港股JSON失败: %v", err)
 	}
 
 	result := make(map[string]*StockData)
